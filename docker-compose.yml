@@ -1,0 +1,50 @@
+﻿name: bankflow
+
+services:
+  oltp:
+    image: postgres:16
+    container_name: bankflow_oltp
+    environment:
+      POSTGRES_DB: ${OLTP_DB}
+      POSTGRES_USER: ${OLTP_USER}
+      POSTGRES_PASSWORD: ${OLTP_PASSWORD}
+    # wal_level=logical нужен для CDC (Debezium читает журнал изменений)
+    command: >
+      postgres
+      -c wal_level=logical
+      -c max_wal_senders=10
+      -c max_replication_slots=10
+    ports:
+      - "${OLTP_PORT}:5432"
+    volumes:
+      - oltp_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  dwh:
+    image: postgres:16
+    container_name: bankflow_dwh
+    environment:
+      POSTGRES_DB: ${DWH_DB}
+      POSTGRES_USER: ${DWH_USER}
+      POSTGRES_PASSWORD: ${DWH_PASSWORD}
+    ports:
+      - "${DWH_PORT}:5432"
+    volumes:
+      - dwh_data:/var/lib/postgresql/data
+      # init-скрипты выполняются один раз при первом запуске на пустом томе
+      - ./sql/init/dwh:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  oltp_data:
+  dwh_data:
