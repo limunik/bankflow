@@ -45,6 +45,17 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Разовая утилита: не стартует вместе с остальными, запускается командой run
+  generator:
+    build: ./generator
+    working_dir: /app
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - ./generator:/app
+      - ./data:/data
+    profiles: ["tools"]
+
 volumes:
   oltp_data:
   dwh_data:
