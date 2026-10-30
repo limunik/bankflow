@@ -38,6 +38,8 @@ services:
       - dwh_data:/var/lib/postgresql/data
       # init-скрипты выполняются один раз при первом запуске на пустом томе
       - ./sql/init/dwh:/docker-entrypoint-initdb.d:ro
+      # вся папка sql видна внутри контейнера как /sql (для psql -f /sql/ddl/...)
+      - ./sql:/sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -45,7 +47,7 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # Разовая утилита: не стартует вместе с остальными, запускается командой run
+  # Разовая утилита: генератор CSV (запускается командой run)
   generator:
     build: ./generator
     working_dir: /app
@@ -54,6 +56,28 @@ services:
     volumes:
       - ./generator:/app
       - ./data:/data
+    profiles: ["tools"]
+
+  # Разовая утилита: загрузчик CSV в stg
+  etl:
+    build: ./etl
+    working_dir: /app
+    environment:
+      # psycopg2 сам читает эти переменные (стандарт Postgres).
+      # Хост "dwh" это имя сервиса: внутри сети Docker контейнеры находят друг друга по имени.
+      # Порт 5432 внутренний (5434 это порт для подключения с ноутбука).
+      PGHOST: dwh
+      PGPORT: "5432"
+      PGDATABASE: ${DWH_DB}
+      PGUSER: ${DWH_USER}
+      PGPASSWORD: ${DWH_PASSWORD}
+      DATA_DIR: /data
+    volumes:
+      - ./etl:/app
+      - ./data:/data:ro   # ro = только чтение: загрузчик не должен менять файлы
+    depends_on:
+      dwh:
+        condition: service_healthy
     profiles: ["tools"]
 
 volumes:

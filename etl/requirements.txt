@@ -1,0 +1,2 @@
+# psycopg2-binary: драйвер, через который Python разговаривает с Postgres
+psycopg2-binary>=2.9
