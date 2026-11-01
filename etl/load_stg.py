@@ -5,10 +5,13 @@
     2. В ОДНОЙ транзакции удаляет из stg строки за эту дату и вставляет файл заново.
     3. Пишет результат в журнал stg.etl_load_log (успех или ошибка).
 
+Источники: merchants, cards (справочники, заменяются целиком),
+           fx_rates, transactions (события, заменяются за дату).
+ground_truth сюда НЕ грузится: пайплайн его не читает.
+
 Запуск (из корня проекта):
     docker compose run --rm etl python load_stg.py --ds 2026-10-01
-    docker compose run --rm etl python load_stg.py --ds 2026-10-01 --days 10
-    docker compose run --rm etl python load_stg.py --ds 2026-10-01 --sources transactions
+    docker compose run --rm etl python load_stg.py --ds 2026-07-31 --days 91 --sources fx_rates,transactions
 """
 import argparse             # разбор параметров командной строки
 import csv                  # чтобы прочитать заголовок файла
@@ -17,17 +20,14 @@ import sys                  # sys.exit: код завершения програ
 from datetime import date, timedelta
 from pathlib import Path
 
-import psycopg2             
+import psycopg2             # драйвер Postgres
 
-# Куда смонтирована папка с данными (см. docker-compose.yml)
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 
 # ---------------------------------------------------------------------------
 # Описание источников.
-# mode:
-#   "by_ds" событие с датой: удаляем и вставляем только строки за эту дату
-#   "full"  справочник: заменяем таблицу целиком (так сказано в ТЗ, ФТ-2)
-# path: функция, которая по дате возвращает путь к файлу.
+# mode: "by_ds" событие с датой (удаляем и вставляем только строки за эту дату);
+#       "full"  справочник (заменяем таблицу целиком).
 # columns: колонки файла В ТОМ ЖЕ ПОРЯДКЕ, что в заголовке CSV.
 # ---------------------------------------------------------------------------
 SOURCES = {
@@ -40,6 +40,12 @@ SOURCES = {
             "merchant_id", "transaction_ts", "amount", "currency", "channel",
             "payment_method",
         ],
+    },
+    "fx_rates": {
+        "table": "stg.stg_fx_rates",
+        "mode": "by_ds",
+        "path": lambda ds: DATA_DIR / "fx_rates" / f"fx_rates_{ds.isoformat()}.csv",
+        "columns": ["rate_date", "currency", "rate"],
     },
     "merchants": {
         "table": "stg.stg_merchants",
@@ -57,20 +63,16 @@ SOURCES = {
 
 
 def connect():
-    """Открывает соединение с базой dwh.
-
-    Параметры не указаны в коде: psycopg2 сам берёт их из переменных окружения
-    PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD, которые docker-compose
-    заполняет из файла .env. Так пароль не попадает в код (НФТ-2).
-    """
+    """Соединение с dwh. Параметры берутся из переменных окружения PGHOST, PGPORT,
+    PGDATABASE, PGUSER, PGPASSWORD (их задаёт docker-compose из .env): пароля в коде нет."""
     return psycopg2.connect()
 
 
 def log_start(source, ds):
     """Добавляет в журнал строку «running» и возвращает её id.
 
-    Отдельное соединение с autocommit: запись попадает в журнал СРАЗУ и не
-    откатывается, даже если основная загрузка упадёт и откатит свою транзакцию.
+    Отдельное соединение с autocommit: запись остаётся в журнале, даже если
+    основная загрузка упадёт и откатит свою транзакцию.
     """
     conn = connect()
     try:
@@ -103,7 +105,6 @@ def log_finish(log_id, status, rows, error):
 
 
 def read_header(path):
-    """Возвращает названия колонок из первой строки CSV."""
     with open(path, newline="", encoding="utf-8") as f:
         return next(csv.reader(f))
 
@@ -117,25 +118,24 @@ def copy_file(cfg, path, ds):
     if header != columns:
         raise ValueError(f"Заголовок файла {path.name} не совпадает с ожидаемым: {header}")
 
-    col_list = ", ".join(columns)                       # "a, b, c"
-    col_defs = ", ".join(f"{c} text" for c in columns)  # "a text, b text, c text"
+    col_list = ", ".join(columns)
+    col_defs = ", ".join(f"{c} text" for c in columns)
 
     conn = connect()
     try:
-        # "with conn": без ошибок транзакция фиксируется (commit), при ошибке
-        # откатывается (rollback). Это и есть «всё или ничего».
+        # "with conn": без ошибок транзакция фиксируется, при ошибке откатывается
         with conn:
             with conn.cursor() as cur:
-                # 1. Удаляем старое. Именно это делает загрузку идемпотентной.
+                # 1. Удаляем старое: именно это делает загрузку идемпотентной
                 if cfg["mode"] == "by_ds":
                     cur.execute(f"DELETE FROM {cfg['table']} WHERE _ds = %s", (ds,))
                 else:
                     cur.execute(f"DELETE FROM {cfg['table']}")
 
-                # 2. Временная таблица, исчезает сама при завершении транзакции
+                # 2. Временная таблица, исчезает сама в конце транзакции
                 cur.execute(f"CREATE TEMP TABLE tmp_load ({col_defs}) ON COMMIT DROP")
 
-                # 3. COPY: быстрая загрузка файла. HEADER true пропускает первую строку.
+                # 3. COPY: быстрая загрузка файла
                 with open(path, encoding="utf-8", newline="") as f:
                     cur.copy_expert(
                         f"COPY tmp_load ({col_list}) FROM STDIN WITH (FORMAT csv, HEADER true)",
@@ -143,14 +143,13 @@ def copy_file(cfg, path, ds):
                     )
 
                 # 4. Переносим в stg и добавляем служебные колонки
-                #    (_loaded_at заполняется сам: DEFAULT now() в DDL)
+                #    (_loaded_at, is_active, is_deleted заполняются значениями по умолчанию)
                 cur.execute(
-
                     f"INSERT INTO {cfg['table']} ({col_list}, _ds, _source) "
                     f"SELECT {col_list}, %s, %s FROM tmp_load",
                     (ds, path.name),
                 )
-                return cur.rowcount   # сколько строк вставлено
+                return cur.rowcount
     finally:
         conn.close()
 
@@ -168,17 +167,16 @@ def load_source(source, ds):
         log_finish(log_id, "success", rows, None)
         return rows
     except Exception as exc:
-        # Ограничиваем длину текста ошибки, чтобы не раздувать журнал
         log_finish(log_id, "failed", 0, str(exc)[:2000])
-        raise   # передаём ошибку выше: main() её покажет
+        raise
 
 
 def main():
     parser = argparse.ArgumentParser(description="Загрузка CSV в stg")
     parser.add_argument("--ds", required=True, help="дата загрузки, YYYY-MM-DD")
     parser.add_argument("--days", type=int, default=1, help="сколько дат подряд")
-    parser.add_argument("--sources", default="merchants,cards,transactions",
-                        help="через запятую: merchants, cards, transactions")
+    parser.add_argument("--sources", default="merchants,cards,fx_rates,transactions",
+                        help="через запятую: merchants, cards, fx_rates, transactions")
     args = parser.parse_args()
 
     start = date.fromisoformat(args.ds)
@@ -198,6 +196,7 @@ def main():
                 print(f"[{d}] {source}: ОШИБКА: {exc}")
                 failed = True
 
+    # Код 1 значит «были ошибки». Airflow по нему поймёт, что задача упала.
     sys.exit(1 if failed else 0)
 
 

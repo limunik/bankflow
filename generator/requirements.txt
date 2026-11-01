@@ -1,1 +1,4 @@
+# Faker: названия компаний для справочника мерчантов
 Faker>=24.0
+# psycopg2-binary: драйвер Postgres для генератора потока accounts
+psycopg2-binary>=2.9
