@@ -17,7 +17,7 @@ import sys                  # sys.exit: код завершения програ
 from datetime import date, timedelta
 from pathlib import Path
 
-import psycopg2             # драйвер Postgres
+import psycopg2             
 
 # Куда смонтирована папка с данными (см. docker-compose.yml)
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
@@ -145,7 +145,8 @@ def copy_file(cfg, path, ds):
                 # 4. Переносим в stg и добавляем служебные колонки
                 #    (_loaded_at заполняется сам: DEFAULT now() в DDL)
                 cur.execute(
-                    f"INSERT INTO {cfg['table']} ({col_list}, _ds, _source_file) "
+
+                    f"INSERT INTO {cfg['table']} ({col_list}, _ds, _source) "
                     f"SELECT {col_list}, %s, %s FROM tmp_load",
                     (ds, path.name),
                 )
@@ -197,7 +198,6 @@ def main():
                 print(f"[{d}] {source}: ОШИБКА: {exc}")
                 failed = True
 
-    # Код 1 значит «были ошибки». Airflow позже по нему поймёт, что задача упала.
     sys.exit(1 if failed else 0)
 
 
