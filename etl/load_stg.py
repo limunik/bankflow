@@ -5,7 +5,7 @@
     2. В ОДНОЙ транзакции удаляет из stg строки за эту дату и вставляет файл заново.
     3. Пишет результат в журнал stg.etl_load_log (успех или ошибка).
 
-Источники: merchants, cards (справочники, заменяются целиком),
+Источники: merchants, cards, customers (справочники, заменяются целиком),
            fx_rates, transactions (события, заменяются за дату).
 ground_truth сюда НЕ грузится: пайплайн его не читает.
 
@@ -38,7 +38,7 @@ SOURCES = {
         "columns": [
             "transaction_id", "card_id", "account_id", "customer_id",
             "merchant_id", "transaction_ts", "amount", "currency", "channel",
-            "payment_method",
+            "payment_method", "transaction_type", "recipient_account_id",
         ],
     },
     "fx_rates": {
@@ -52,6 +52,12 @@ SOURCES = {
         "mode": "full",
         "path": lambda ds: DATA_DIR / "merchants" / "merchants.csv",
         "columns": ["merchant_id", "merchant_name", "category", "country"],
+    },
+    "customers": {
+        "table": "stg.stg_customers",
+        "mode": "full",
+        "path": lambda ds: DATA_DIR / "customers" / "customers.csv",
+        "columns": ["customer_id", "customer_name", "customer_type"],
     },
     "cards": {
         "table": "stg.stg_cards",
@@ -175,8 +181,8 @@ def main():
     parser = argparse.ArgumentParser(description="Загрузка CSV в stg")
     parser.add_argument("--ds", required=True, help="дата загрузки, YYYY-MM-DD")
     parser.add_argument("--days", type=int, default=1, help="сколько дат подряд")
-    parser.add_argument("--sources", default="merchants,cards,fx_rates,transactions",
-                        help="через запятую: merchants, cards, fx_rates, transactions")
+    parser.add_argument("--sources", default="merchants,cards,customers,fx_rates,transactions",
+                        help="через запятую: merchants, cards, customers, fx_rates, transactions")
     args = parser.parse_args()
 
     start = date.fromisoformat(args.ds)

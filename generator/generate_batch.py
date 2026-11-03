@@ -1,18 +1,25 @@
-"""Генератор батчей BankFlow: merchants.csv, cards.csv, transactions_ДАТА.csv и ground_truth_ДАТА.csv.
+"""Генератор батчей BankFlow.
 
-Батч = «пачка» данных за один период (у нас за один день).
+Создаёт файлы: merchants.csv, cards.csv, customers.csv,
+               transactions_ДАТА.csv и ground_truth_ДАТА.csv.
+
+Операции бывают двух типов (колонка transaction_type):
+    PURCHASE  оплата мерчанту картой, QR или Apple Pay (заполнен merchant_id);
+    TRANSFER  перевод на другой счёт через банковское приложение (заполнен recipient_account_id).
 
 Запуск (из корня проекта):
     docker compose run --rm generator python generate_batch.py --start 2026-07-31 --days 91
 
 Порядок работы:
-    1. Создаём справочник мерчантов (или читаем, если файл уже есть).
-    2. Строим пул карт и записываем справочник cards.csv.
+    1. Справочник мерчантов (или читаем готовый).
+    2. Пул карт; справочники cards.csv и customers.csv.
     3. Для каждой даты:
-         а) генерируем обычные операции (зарплаты, вечерние пики, суммы по категориям);
-         б) добавляем сценарии фрода и «похожие на фрод» законные операции;
-         в) записываем файл ground_truth (правильные ответы для оценки правил);
-         г) портим ~1% строк (дубли, пропуски) и записываем transactions_ДАТА.csv.
+         а) обычные покупки (зарплаты, вечерние пики, суммы по категориям);
+         б) обычные переводы: доверенным получателям, редко незнакомым;
+         в) в день зарплаты зарплатные ведомости юрлиц;
+         г) сценарии фрода и «похожие на фрод» законные операции;
+         д) файл ground_truth (правильные ответы для оценки правил);
+         е) портим ~1% строк (дубли, пропуски) и записываем transactions_ДАТА.csv.
 ground_truth пайплайн НЕ читает: он нужен только для оценки качества правил.
 """
 import argparse            # разбор параметров командной строки
@@ -23,7 +30,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from faker import Faker    # придумывает правдоподобные названия компаний
+from faker import Faker    # придумывает правдоподобные названия и имена
 
 import config
 from pool import build_card_pool
@@ -35,15 +42,17 @@ DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 
 MERCHANTS_FILE = DATA_DIR / "merchants" / "merchants.csv"
 CARDS_FILE = DATA_DIR / "cards" / "cards.csv"
+CUSTOMERS_FILE = DATA_DIR / "customers" / "customers.csv"
 TX_DIR = DATA_DIR / "transactions"
 GT_DIR = DATA_DIR / "ground_truth"
 
 MERCHANT_COLUMNS = ["merchant_id", "merchant_name", "category", "country"]
 CARD_COLUMNS = ["card_id", "account_id", "customer_id", "card_scheme"]
+CUSTOMER_COLUMNS = ["customer_id", "customer_name", "customer_type"]
 TX_COLUMNS = [
     "transaction_id", "card_id", "account_id", "customer_id",
     "merchant_id", "transaction_ts", "amount", "currency", "channel",
-    "payment_method",
+    "payment_method", "transaction_type", "recipient_account_id",
 ]
 # ground_truth: только операции из сценариев. Обычные операции в файл не попадают
 # (для них is_fraud = 0 по умолчанию).
@@ -102,6 +111,41 @@ def generate_cards(cards):
     return rows
 
 
+def generate_customers(cards):
+    """Записывает справочник клиентов customers.csv (физлица и юрлица).
+
+    Названия и имена придуманы Faker (все данные синтетические).
+    """
+    fake = Faker("ru_RU")
+    fake.seed_instance(config.SEED + 5)
+
+    rows = {}
+    for c in cards:
+        cid = c["customer_id"]
+        if cid in rows:
+            continue
+        rows[cid] = {
+            "customer_id": cid,
+            "customer_name": fake.company() if c["customer_type"] == "legal" else fake.name(),
+            "customer_type": c["customer_type"],
+        }
+    rows = list(rows.values())
+    write_csv(CUSTOMERS_FILE, CUSTOMER_COLUMNS, rows)
+    return rows
+
+
+def build_world(cards):
+    """Справочные списки для переводов: счета физлиц и кому принадлежит каждый счёт."""
+    acc_customer = {}
+    indiv_accounts = []
+    for c in cards:
+        if c["account_id"] not in acc_customer:
+            acc_customer[c["account_id"]] = c["customer_id"]
+            if c["customer_type"] == "individual":
+                indiv_accounts.append(c["account_id"])
+    return {"indiv_accounts": indiv_accounts, "acc_customer": acc_customer}
+
+
 def load_merchants():
     with open(MERCHANTS_FILE, newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))
@@ -129,7 +173,7 @@ def pick(rng, weights_dict):
 
 
 def make_row(rng, card, merchant, ts, amount_kgs, channel=None):
-    """Собирает одну операцию (без transaction_id: он появится после сортировки).
+    """Собирает покупку у мерчанта (без transaction_id: он появится после сортировки).
 
     amount_kgs: сумма в сомах; в валюту операции переводим по примерному курсу.
     channel: если не задан, выбирается по категории мерчанта.
@@ -164,7 +208,38 @@ def make_row(rng, card, merchant, ts, amount_kgs, channel=None):
         "currency": currency,
         "channel": channel,
         "payment_method": payment_method,
+        "transaction_type": "PURCHASE",
+        "recipient_account_id": "",
     }
+
+
+def make_transfer(rng, card, recipient_account, ts, amount_kgs, currency=None):
+    """Собирает перевод на счёт `recipient_account` (мерчанта нет, канал банковское приложение)."""
+    if currency is None:
+        currency = pick(rng, {"KGS": 97, "USD": 3})
+    amount = max(round(amount_kgs / config.APPROX_RATE_TO_KGS[currency], 2), 0.5)
+    return {
+        "card_id": card["card_id"],              # карта-источник (по ней идёт привязка к счёту)
+        "account_id": card["account_id"],
+        "customer_id": card["customer_id"],
+        "merchant_id": "",
+        "transaction_ts": ts.strftime("%Y-%m-%d %H:%M:%S"),
+        "amount": f"{amount:.2f}",
+        "currency": currency,
+        "channel": "ONLINE",
+        "payment_method": "BANK_APP",
+        "transaction_type": "TRANSFER",
+        "recipient_account_id": recipient_account,
+    }
+
+
+def pick_stranger(rng, card, world):
+    """Счёт получателя, которого у клиента нет среди доверенных (и это не его собственный счёт)."""
+    trusted = set(card["trusted"])
+    while True:
+        acc = rng.choice(world["indiv_accounts"])
+        if acc not in trusted and world["acc_customer"][acc] != card["customer_id"]:
+            return acc
 
 
 # ---------------------------------------------------------------------------
@@ -179,13 +254,18 @@ def rand_ts(rng, d, second=None):
 
 
 def typical_kgs(rng, card):
-    """Обычная для клиента сумма в сомах."""
+    """Обычная для клиента сумма покупки в сомах."""
     return card["scale"] * config.TYPICAL_MEDIAN_KGS * rng.lognormvariate(0, 0.6)
 
 
 def big_kgs(rng, card, low, high):
-    """Сумма в low..high раз больше «обычного» чека клиента."""
+    """Сумма покупки в low..high раз больше «обычного» чека клиента."""
     return card["scale"] * config.TYPICAL_MEDIAN_KGS * rng.uniform(low, high)
+
+
+def big_transfer_kgs(rng, card, low, high):
+    """Сумма перевода в low..high раз больше «обычного» перевода клиента."""
+    return card["scale"] * config.TRANSFER_MEDIAN_KGS * rng.uniform(low, high)
 
 
 def sc_series(rng, d, ctx, big):
@@ -208,7 +288,7 @@ def sc_series(rng, d, ctx, big):
 
 
 def sc_big_amount(rng, d, ctx):
-    """Фрод: одна крупная операция, в 8-20 раз больше обычного чека клиента."""
+    """Фрод: одна крупная покупка, в 8-20 раз больше обычного чека клиента."""
     card = rng.choice(ctx["active_cards"])
     row = make_row(rng, card, rng.choice(ctx["kg_big"]), rand_ts(rng, d),
                    big_kgs(rng, card, 8, 20))
@@ -267,6 +347,28 @@ def sc_legit_foreign_online(rng, d, ctx):
     return [(leg1, "legit_foreign_online_leg1", 0), (leg2, "legit_foreign_online", 0)]
 
 
+def sc_new_recipient_big(rng, d, ctx):
+    """Фрод: ночью 1-3 крупных перевода подряд незнакомому получателю (в 8-20 раз больше обычного)."""
+    card = rng.choice(ctx["indiv_cards"])
+    recipient = pick_stranger(rng, card, ctx["world"])
+    t0 = datetime(d.year, d.month, d.day, rng.randrange(0, 6), rng.randrange(60), rng.randrange(60))
+    out = []
+    for i in range(rng.randint(1, 3)):
+        ts = t0 + timedelta(minutes=i * rng.randint(2, 10))
+        out.append((make_transfer(rng, card, recipient, ts, big_transfer_kgs(rng, card, 8, 20)),
+                    "new_recipient_big", 1))
+    return out
+
+
+def sc_legit_new_recipient_big(rng, d, ctx):
+    """Законно, но похоже на фрод: днём один крупный перевод новому получателю (аренда, задаток)."""
+    card = rng.choice(ctx["indiv_cards"])
+    recipient = pick_stranger(rng, card, ctx["world"])
+    ts = datetime(d.year, d.month, d.day, rng.randrange(10, 19), rng.randrange(60), rng.randrange(60))
+    return [(make_transfer(rng, card, recipient, ts, big_transfer_kgs(rng, card, 6, 12)),
+             "legit_new_recipient_big", 0)]
+
+
 SCENARIOS = {
     "series": lambda rng, d, ctx: sc_series(rng, d, ctx, big=False),
     "series_big": lambda rng, d, ctx: sc_series(rng, d, ctx, big=True),
@@ -276,10 +378,12 @@ SCENARIOS = {
     "legit_burst": sc_legit_burst,
     "legit_big_purchase": sc_legit_big,
     "legit_foreign_online": sc_legit_foreign_online,
+    "new_recipient_big": sc_new_recipient_big,
+    "legit_new_recipient_big": sc_legit_new_recipient_big,
 }
 
 
-def generate_transactions(d, cards, merchants, dirty_rate):
+def generate_transactions(d, cards, merchants, dirty_rate, world):
     """Создаёт операции за дату `d`, записывает файлы и возвращает (строки, грязь, ground_truth)."""
     # Свой генератор случайных чисел НА КАЖДУЮ ДАТУ: файл за дату всегда одинаковый.
     rng = random.Random(f"{config.SEED}-{d.isoformat()}")
@@ -290,15 +394,19 @@ def generate_transactions(d, cards, merchants, dirty_rate):
     dead = [c for c in cards if c["inactive_from"] is not None and d > c["inactive_from"]]
 
     n = int(config.BASE_TX_PER_DAY * day_factor(d) * rng.uniform(0.95, 1.05))
+    n_transfers = int(n * config.TRANSFER_SHARE)
+    n_purchases = n - n_transfers
 
     card_weights = [c["weight"] for c in eligible]
     merchant_weights = [config.CATEGORIES[m["category"]][1] for m in merchants]
-    chosen_cards = rng.choices(eligible, card_weights, k=n)
-    chosen_merchants = rng.choices(merchants, merchant_weights, k=n)
-    hours = rng.choices(range(24), config.HOUR_WEIGHTS, k=n)
 
     rows = []
-    for i in range(n):
+
+    # ----- Обычные покупки -----
+    chosen_cards = rng.choices(eligible, card_weights, k=n_purchases)
+    chosen_merchants = rng.choices(merchants, merchant_weights, k=n_purchases)
+    hours = rng.choices(range(24), config.HOUR_WEIGHTS, k=n_purchases)
+    for i in range(n_purchases):
         card = chosen_cards[i]
         merchant = chosen_merchants[i]
         ts = datetime(d.year, d.month, d.day, hours[i], rng.randrange(60), rng.randrange(60))
@@ -306,10 +414,45 @@ def generate_transactions(d, cards, merchants, dirty_rate):
         amount_kgs = median_kgs * card["scale"] * rng.lognormvariate(0, 0.6)
         rows.append(make_row(rng, card, merchant, ts, amount_kgs))
 
+    # ----- Обычные переводы -----
+    # Чаще всего клиент переводит доверенным получателям (повторяющаяся сумма, как аренда),
+    # изредка незнакомым и тогда небольшую сумму.
+    tr_cards = rng.choices(eligible, card_weights, k=n_transfers)
+    tr_hours = rng.choices(range(24), config.HOUR_WEIGHTS, k=n_transfers)
+    for i in range(n_transfers):
+        card = tr_cards[i]
+        ts = datetime(d.year, d.month, d.day, tr_hours[i], rng.randrange(60), rng.randrange(60))
+        if card["customer_type"] == "legal" or rng.random() >= config.STRANGER_TRANSFER_SHARE:
+            recipient = rng.choice(card["trusted"])
+            # у каждой пары «отправитель-получатель» своя привычная сумма
+            pair = random.Random(f"{config.SEED}-pair-{card['account_id']}-{recipient}")
+            amount_kgs = (card["scale"] * config.TRANSFER_MEDIAN_KGS
+                          * pair.uniform(0.4, 2.0) * rng.lognormvariate(0, 0.15))
+        else:
+            recipient = pick_stranger(rng, card, world)
+            amount_kgs = (card["scale"] * config.TRANSFER_MEDIAN_KGS
+                          * 0.4 * rng.lognormvariate(0, 0.6))
+        rows.append(make_transfer(rng, card, recipient, ts, amount_kgs))
+
+    # ----- Зарплатные ведомости юрлиц (в день зарплаты) -----
+    if d.day in config.SALARY_DAYS:
+        seen = set()
+        for card in eligible:
+            if card["customer_type"] != "legal" or card["customer_id"] in seen:
+                continue
+            seen.add(card["customer_id"])
+            for acc in card["payroll"]:
+                salary = random.Random(f"{config.SEED}-sal-{acc}").uniform(*config.PAYROLL_SALARY_KGS)
+                ts = datetime(d.year, d.month, d.day, rng.randrange(9, 12),
+                              rng.randrange(60), rng.randrange(60))
+                rows.append(make_transfer(rng, card, acc, ts, salary, currency="KGS"))
+
     # ----- Сценарии -----
     ctx = {
         "active_cards": eligible,
+        "indiv_cards": [c for c in eligible if c["customer_type"] == "individual"],
         "dead_cards": dead,
+        "world": world,
         "kg": [m for m in merchants if m["country"] == "KG"],
         "foreign": [m for m in merchants if m["country"] != "KG"],
         "kg_online": [m for m in merchants
@@ -349,16 +492,22 @@ def generate_transactions(d, cards, merchants, dirty_rate):
                        "scenario_start_ts": start_ts})
     write_csv(GT_DIR / f"ground_truth_{d.isoformat()}.csv", GT_COLUMNS, gt)
 
-    # «Грязные» данные (после ground_truth: метки хранят правду об исходной операции)
+    # «Грязные» данные (после ground_truth: метки хранят правду об исходной операции).
+    # У покупки может пропасть merchant_id, у перевода recipient_account_id.
     dirty = Counter()
     extra = []
     for row in rows:
         if rng.random() < dirty_rate:
-            kind = rng.choice(["duplicate", "empty_merchant", "empty_amount"])
+            if row["transaction_type"] == "PURCHASE":
+                kind = rng.choice(["duplicate", "empty_merchant", "empty_amount"])
+            else:
+                kind = rng.choice(["duplicate", "empty_recipient", "empty_amount"])
             if kind == "duplicate":
                 extra.append(dict(row))
             elif kind == "empty_merchant":
                 row["merchant_id"] = ""
+            elif kind == "empty_recipient":
+                row["recipient_account_id"] = ""
             else:
                 row["amount"] = ""
             dirty[kind] += 1
@@ -373,14 +522,13 @@ def summarize(d, rows, dirty, gt):
     hours = [int(r["transaction_ts"][11:13]) for r in rows]
     night = sum(h < 6 for h in hours) / n
     evening = sum(18 <= h <= 21 for h in hours) / n
-    cur = Counter(r["currency"] for r in rows)
+    transfers = sum(1 for r in rows if r["transaction_type"] == "TRANSFER")
     pm = Counter(r["payment_method"] for r in rows)
     fraud = sum(1 for g in gt if g["is_fraud"] == 1)
     look = sum(1 for g in gt if g["is_fraud"] == 0)
 
     print(
-        f"{d} | строк: {n:5d} | ночь: {night:5.1%} | вечер: {evening:5.1%} | "
-        f"KGS/USD/EUR: {cur['KGS']}/{cur['USD']}/{cur['EUR']} | "
+        f"{d} | строк: {n:5d} | переводов: {transfers:5d} | ночь: {night:5.1%} | вечер: {evening:5.1%} | "
         f"CARD/QR/APPLE: {pm['CARD']}/{pm['QR']}/{pm['APPLE_PAY']} | "
         f"фрод: {fraud} | сценарии-не-фрод: {look} | грязных: {sum(dirty.values())}"
     )
@@ -407,11 +555,15 @@ def main():
 
     cards = build_card_pool()
     generate_cards(cards)
-    print(f"cards.csv создан: {len(cards)} строк")
+    customers = generate_customers(cards)
+    legal = sum(1 for c in customers if c["customer_type"] == "legal")
+    print(f"cards.csv создан: {len(cards)} строк | customers.csv создан: {len(customers)} строк "
+          f"(юрлиц {legal})")
 
+    world = build_world(cards)
     for k in range(args.days):
         d = start + timedelta(days=k)
-        rows, dirty, gt = generate_transactions(d, cards, merchants, args.dirty_rate)
+        rows, dirty, gt = generate_transactions(d, cards, merchants, args.dirty_rate, world)
         summarize(d, rows, dirty, gt)
 
 
