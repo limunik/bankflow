@@ -25,3 +25,7 @@ dbt/dbt_packages/
 Thumbs.db
 .vscode/
 .idea/
+
+
+/config/
+/plugins/
