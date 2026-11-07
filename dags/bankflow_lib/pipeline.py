@@ -8,7 +8,8 @@ from datetime import date, datetime
 from pathlib import Path
 
 from bankflow_lib import repository
-from bankflow_lib.config import DATA_DIR, SOURCE_FILES, STG_TABLES
+from bankflow_lib.config import (DATA_DIR, DATA_FIRST_DATE, DATA_LAST_DATE,
+                                 SOURCE_FILES, STG_TABLES)
 
 LOG = logging.getLogger(__name__)
 
@@ -56,3 +57,32 @@ def stg_report(get_connection, ds):
     for source, status, rows in repository.last_load_status(get_connection, ds):
         LOG.info("журнал загрузок: %s %s %s", source, status, rows)
     return counts
+
+
+def files_ready(ds, data_dir=DATA_DIR):
+    """True, если все файлы за дату на месте. Её вызывает сенсор на каждой проверке."""
+    missing = check_files(ds, data_dir)
+    if missing:
+        LOG.info("Файлов за %s ещё нет: %s. Проверю снова.", ds, ", ".join(missing))
+    return not missing
+
+
+def verify_loaded(get_connection, ds, loads):
+    """Сверяет, что загружено столько же строк, сколько теперь лежит в stg.
+
+    loads: список {"source": ..., "rows": ...} из задач загрузки. Возвращает список расхождений.
+    """
+    problems = []
+    for item in loads:
+        source, loaded = item["source"], item["rows"]
+        in_table = repository.stg_rows(get_connection, source, ds)
+        LOG.info("%-12s загружено %s, в таблице %s", source, loaded, in_table)
+        if loaded != in_table:
+            problems.append(f"{source}: загружено {loaded}, в таблице {in_table}")
+    return problems
+
+
+def is_outside_data_period(ds):
+    """True, если за дату ds у нас не может быть данных (вне периода генерации)."""
+    ds = date.fromisoformat(str(ds)[:10])
+    return not (date.fromisoformat(DATA_FIRST_DATE) <= ds <= date.fromisoformat(DATA_LAST_DATE))

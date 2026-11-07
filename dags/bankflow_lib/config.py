@@ -35,3 +35,30 @@ STG_TABLES = {
     "cards": {"table": "stg.stg_cards", "by_ds": False},
     "customers": {"table": "stg.stg_customers", "by_ds": False},
 }
+
+# Колонки файлов В ТОМ ЖЕ ПОРЯДКЕ, что в заголовке CSV (загрузчик сверяет заголовок).
+SOURCE_COLUMNS = {
+    "transactions": [
+        "transaction_id", "card_id", "account_id", "customer_id", "merchant_id",
+        "transaction_ts", "amount", "currency", "channel", "payment_method",
+        "transaction_type", "recipient_account_id",
+    ],
+    "fx_rates": ["rate_date", "currency", "rate"],
+    "merchants": ["merchant_id", "merchant_name", "category", "country"],
+    "cards": ["card_id", "account_id", "customer_id", "card_scheme"],
+    "customers": ["customer_id", "customer_name", "customer_type"],
+}
+
+# Источники, которые грузятся в stg параллельными задачами
+STG_LOAD_ORDER = ["merchants", "cards", "customers", "fx_rates", "transactions"]
+
+# Сенсор ожидания файлов: как часто проверять и сколько ждать, секунд.
+# Если файлов нет после ожидания, задача падает (повторять дальше бессмысленно).
+SENSOR_POKE_SECONDS = int(os.environ.get("BANKFLOW_SENSOR_POKE", "15"))
+SENSOR_TIMEOUT_SECONDS = int(os.environ.get("BANKFLOW_SENSOR_TIMEOUT", "120"))
+
+# Период, за который у нас есть данные. Запуск ПО РАСПИСАНИЮ за дату вне периода
+# пропускается (а не падает): после 29 октября 2026 новых файлов просто нет.
+# Ручные запуски и Backfill этим правилом не ограничены.
+DATA_FIRST_DATE = os.environ.get("BANKFLOW_DATA_FIRST", "2026-07-31")
+DATA_LAST_DATE = os.environ.get("BANKFLOW_DATA_LAST", "2026-10-29")

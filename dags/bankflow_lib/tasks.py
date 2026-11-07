@@ -13,12 +13,18 @@ except ImportError:                             # Airflow 2
     from airflow.operators.python import get_current_context
 
 try:                                            # Airflow 3
-    from airflow.sdk.exceptions import AirflowFailException
+    from airflow.sdk.exceptions import AirflowFailException, AirflowSkipException
 except ImportError:                             # Airflow 2
-    from airflow.exceptions import AirflowFailException
+    from airflow.exceptions import AirflowFailException, AirflowSkipException
 
-from bankflow_lib import pipeline
-from bankflow_lib.config import POSTGRES_CONN_ID
+try:                                            # Airflow 3 (провайдер standard)
+    from airflow.providers.standard.sensors.python import PythonSensor
+except ImportError:                             # Airflow 2
+    from airflow.sensors.python import PythonSensor
+
+from bankflow_lib import loader, pipeline
+from bankflow_lib.config import (POSTGRES_CONN_ID, SENSOR_POKE_SECONDS,
+                                 SENSOR_TIMEOUT_SECONDS)
 
 LOG = logging.getLogger(__name__)
 
@@ -79,3 +85,66 @@ def summary(batch, files, stg):
     """Итог проверки: что нашли за дату."""
     LOG.info("Готово за %s: файлы на месте, в stg операций %s",
              batch["load_date"], stg["transactions"])
+
+
+def wait_for_files(batch):
+    """Сенсор: ждёт, пока появятся ВСЕ файлы за дату.
+
+    Генератор пишет файл во временное имя и переименовывает его в конце, поэтому
+    сенсор никогда не увидит наполовину записанный файл. Если файлов нет после
+    SENSOR_TIMEOUT_SECONDS, задача падает без повторов (аналог проверки с повторами
+    для внешнего источника).
+    """
+    return PythonSensor(
+        task_id="wait_for_files",
+        python_callable=_files_ready,
+        op_kwargs={"batch": batch},
+        poke_interval=SENSOR_POKE_SECONDS,
+        timeout=SENSOR_TIMEOUT_SECONDS,
+        mode="reschedule",
+    )
+
+
+def _files_ready(batch):
+    return pipeline.files_ready(batch["load_date"])
+
+
+@task(map_index_template="{{ source_name }}")
+def load_stg(batch, source):
+    """Загружает один источник в stg. Задача размножается по списку источников и
+    все копии идут параллельно. Каждая попытка пишет строку в etl_load_log."""
+    context = get_current_context()
+    context["source_name"] = source                     # подпись копии задачи в интерфейсе
+    ti = context["ti"]
+    attempt = getattr(ti, "try_number", 1)
+    try:
+        rows = loader.load_source(open_connection, source, batch["load_date"],
+                                  run_id=context["run_id"], attempt=attempt)
+    except (FileNotFoundError, ValueError) as error:
+        # нет файла или не тот заголовок: повтор не исправит
+        raise AirflowFailException(str(error)) from error
+    return {"source": source, "rows": rows}
+
+
+@task()
+def stg_summary(batch, loads):
+    """Итог слоя stg: сверяет число загруженных строк с таблицей."""
+    problems = pipeline.verify_loaded(open_connection, batch["load_date"], list(loads))
+    if problems:
+        raise AirflowFailException("Расхождения: " + "; ".join(problems))
+    LOG.info("stg за %s готов: %s", batch["load_date"],
+             {item["source"]: item["rows"] for item in loads})
+
+
+@task()
+def guard_period(batch):
+    """Запуск по расписанию за дату без данных пропускаем (Skipped), а не роняем.
+
+    Ручные запуски и Backfill проходят всегда: если файла нет, это настоящая ошибка,
+    и её должен показать сенсор.
+    """
+    run_type = str(getattr(get_current_context()["dag_run"], "run_type", "")).lower()
+    if "scheduled" in run_type and pipeline.is_outside_data_period(batch["load_date"]):
+        raise AirflowSkipException(
+            f"За {batch['load_date']} данных нет (вне периода генерации): запуск пропущен")
+    return batch
