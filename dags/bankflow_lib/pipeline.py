@@ -86,3 +86,19 @@ def is_outside_data_period(ds):
     """True, если за дату ds у нас не может быть данных (вне периода генерации)."""
     ds = date.fromisoformat(str(ds)[:10])
     return not (date.fromisoformat(DATA_FIRST_DATE) <= ds <= date.fromisoformat(DATA_LAST_DATE))
+
+
+def verify_ods(get_connection, ds, loads):
+    """Сверяет итог ods: загружено столько, сколько лежит в таблице ods.
+
+    loads: список {"source", "loaded", ...} из задач ods. Для справочников в таблице их
+    общее число (все даты), для событий строки за дату. Возвращает список расхождений.
+    """
+    problems = []
+    for item in loads:
+        source, loaded = item["source"], item["loaded"]
+        in_table = repository.ods_rows(get_connection, source, ds)
+        LOG.info("%-12s в ods обработано %s, в таблице %s", source, loaded, in_table)
+        if loaded != in_table:
+            problems.append(f"{source}: обработано {loaded}, в таблице {in_table}")
+    return problems

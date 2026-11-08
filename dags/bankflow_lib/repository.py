@@ -7,7 +7,7 @@
 """
 from contextlib import closing, contextmanager
 
-from bankflow_lib.config import STG_TABLES
+from bankflow_lib.config import ODS_FUNCTIONS, ODS_TABLES, STG_TABLES
 
 
 @contextmanager
@@ -61,13 +61,48 @@ def log_start(get_connection, source, ds, layer, run_id, attempt):
             return cursor.fetchone()[0]
 
 
-def log_finish(get_connection, log_id, status, rows, error):
-    """Дописывает в журнал итог: статус, число строк, время конца, текст ошибки."""
+def log_finish(get_connection, log_id, status, rows, error, rows_rejected=None):
+    """Дописывает в журнал итог: статус, число строк, отбраковано, время конца, текст ошибки."""
     with closing(get_connection()) as connection:
         connection.autocommit = True
         with connection.cursor() as cursor:
             cursor.execute(
                 "UPDATE stg.etl_load_log "
-                "SET finished_at = now(), status = %s, rows_loaded = %s, error_message = %s "
+                "SET finished_at = now(), status = %s, rows_loaded = %s, error_message = %s, "
+                "    rows_rejected = %s "
                 "WHERE id = %s",
-                (status, rows, error, log_id))
+                (status, rows, error, rows_rejected, log_id))
+
+
+def call_ods_function(get_connection, source, ds, max_reject_share=None):
+    """Вызывает SQL-функцию переноса stg -> ods за дату ds одной транзакцией.
+
+    Функция сама берёт блокировку, чистит прежние отбраковки за дату и делает upsert,
+    поэтому повторный вызов за ту же дату не меняет данные. Возвращает словарь счётчиков.
+
+    Если задан max_reject_share и отбраковано больше этой доли, бросает ValueError ВНУТРИ
+    транзакции: изменения откатываются, в ods остаётся прежнее состояние.
+    """
+    function = ODS_FUNCTIONS[source]
+    with transaction(get_connection) as cursor:
+        cursor.execute(f"SELECT * FROM {function}(%s::date)", (ds,))
+        stg_rows, duplicates, rejected, inserted, updated = cursor.fetchone()
+        share = rejected / stg_rows if stg_rows else 0
+        if max_reject_share is not None and share > max_reject_share:
+            raise ValueError(
+                f"{source}: отбраковано {share:.1%} строк (порог {max_reject_share:.0%}), "
+                f"загрузка отменена; смотрите ods.ods_reject за {ds}")
+    return {"stg_rows": stg_rows, "duplicates": duplicates, "rejected": rejected,
+            "inserted": inserted, "updated": updated}
+
+
+def ods_rows(get_connection, source, ds):
+    """Сколько строк источника лежит в ods (за дату, если у таблицы есть колонка даты)."""
+    meta = ODS_TABLES[source]
+    with transaction(get_connection) as cursor:
+        if meta["date_column"]:
+            cursor.execute(
+                f"SELECT count(*) FROM {meta['table']} WHERE {meta['date_column']} = %s", (ds,))
+        else:
+            cursor.execute(f"SELECT count(*) FROM {meta['table']}")
+        return cursor.fetchone()[0]

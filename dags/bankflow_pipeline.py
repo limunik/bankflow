@@ -1,9 +1,12 @@
-"""Основной DAG BankFlow: за дату ds проверяет файлы и грузит три-пять источников в stg.
+"""Основной DAG BankFlow: за дату ds проверяет файлы, грузит источники в stg, затем в ods.
 
 Порядок:
-    resolve_date -> guard_period -> wait_for_files -> load_stg (по задаче на источник, параллельно) -> stg_summary
+    resolve_date -> guard_period -> wait_for_files -> load_stg (по задаче на источник, параллельно)
+    -> stg_summary -> ods: customers, merchants, fx_rates (параллельно)
+    -> cards (после customers) -> transactions (после cards и merchants) -> ods_check
 
-Дальше в него добавятся ods (дни 9-10), dds (день 13) и запуск DAG витрин (день 17).
+Родители грузятся раньше детей: карта ссылается на клиента, операция на карту и мерчанта.
+Дальше добавятся dds (день 13) и запуск DAG витрин (день 17).
 
 Дата ds берётся так: параметр load_date, а если его нет, логическая дата запуска.
 Для запуска по расписанию и для Backfill логическая дата это начало обрабатываемых суток,
@@ -30,8 +33,8 @@ if PROJECT_DIR not in sys.path:
     sys.path.insert(0, PROJECT_DIR)
 
 from bankflow_lib.config import STG_LOAD_ORDER, TZ
-from bankflow_lib.tasks import (guard_period, load_stg, resolve_date, stg_summary,
-                                wait_for_files)
+from bankflow_lib.tasks import (guard_period, load_ods, load_stg, ods_summary, resolve_date,
+                                stg_summary, wait_for_files)
 
 with DAG(
     dag_id="bankflow_pipeline",
@@ -47,7 +50,7 @@ with DAG(
         "retry_delay": timedelta(seconds=30),
         "execution_timeout": timedelta(minutes=10),
     },
-    tags=["bankflow", "day8"],
+    tags=["bankflow", "day10"],
 ) as dag:
     batch = resolve_date()
     guard = guard_period(batch)
@@ -56,3 +59,16 @@ with DAG(
     summary = stg_summary(batch, loads)
 
     batch >> guard >> ready >> loads
+
+    # ods: каждая задача вызывает свою SQL-функцию; зависимости = порядок «родители раньше детей»
+    ods_customers = load_ods.override(task_id="ods_customers")(batch, "customers")
+    ods_merchants = load_ods.override(task_id="ods_merchants")(batch, "merchants")
+    ods_fx_rates = load_ods.override(task_id="ods_fx_rates")(batch, "fx_rates")
+    ods_cards = load_ods.override(task_id="ods_cards")(batch, "cards")
+    ods_transactions = load_ods.override(task_id="ods_transactions")(batch, "transactions")
+    ods_check = ods_summary(batch, [ods_customers, ods_merchants, ods_fx_rates,
+                                    ods_cards, ods_transactions])
+
+    summary >> [ods_customers, ods_merchants, ods_fx_rates]
+    ods_customers >> ods_cards
+    [ods_cards, ods_merchants] >> ods_transactions

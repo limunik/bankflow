@@ -22,7 +22,7 @@ try:                                            # Airflow 3 (провайдер 
 except ImportError:                             # Airflow 2
     from airflow.sensors.python import PythonSensor
 
-from bankflow_lib import loader, pipeline
+from bankflow_lib import loader, ods_loader, pipeline
 from bankflow_lib.config import (POSTGRES_CONN_ID, SENSOR_POKE_SECONDS,
                                  SENSOR_TIMEOUT_SECONDS)
 
@@ -148,3 +148,29 @@ def guard_period(batch):
         raise AirflowSkipException(
             f"За {batch['load_date']} данных нет (вне периода генерации): запуск пропущен")
     return batch
+
+
+@task()
+def load_ods(batch, source):
+    """Переносит один источник из stg в ods (SQL-функция ods.load_<источник>).
+    Одна и та же задача используется для каждого источника под своим именем (task_id),
+    чтобы порядок загрузки (родители раньше детей) был виден на графе DAG."""
+    context = get_current_context()
+    attempt = getattr(context["ti"], "try_number", 1)
+    try:
+        counts = ods_loader.load_table(open_connection, source, batch["load_date"],
+                                       run_id=context["run_id"], attempt=attempt)
+    except ValueError as error:
+        # слишком много брака: повтор не поможет, нужно смотреть файл
+        raise AirflowFailException(str(error)) from error
+    return {"source": source, **counts}
+
+
+@task()
+def ods_summary(batch, loads):
+    """Итог слоя ods: сверяет обработанное число строк с таблицами ods."""
+    problems = pipeline.verify_ods(open_connection, batch["load_date"], list(loads))
+    if problems:
+        raise AirflowFailException("Расхождения в ods: " + "; ".join(problems))
+    LOG.info("ods за %s готов: %s", batch["load_date"],
+             {item["source"]: item["loaded"] for item in loads})

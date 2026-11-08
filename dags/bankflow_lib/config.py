@@ -62,3 +62,28 @@ SENSOR_TIMEOUT_SECONDS = int(os.environ.get("BANKFLOW_SENSOR_TIMEOUT", "120"))
 # Ручные запуски и Backfill этим правилом не ограничены.
 DATA_FIRST_DATE = os.environ.get("BANKFLOW_DATA_FIRST", "2026-07-31")
 DATA_LAST_DATE = os.environ.get("BANKFLOW_DATA_LAST", "2026-10-29")
+
+# ---------------------------------------------------------------- слой ods (дни 9-10)
+# Какая SQL-функция переносит источник из stg в ods (одна функция на таблицу, параметр = дата).
+# Имена функций только отсюда: в SQL их подставляет код, а не пользователь.
+ODS_FUNCTIONS = {
+    "customers": "ods.load_customers",
+    "merchants": "ods.load_merchants",
+    "fx_rates": "ods.load_fx_rates",
+    "cards": "ods.load_cards",
+    "transactions": "ods.load_transactions",
+}
+
+# Таблицы ods: для сверки числа строк. date_column: по какой колонке считать строки за дату
+# (None: справочник, считаем всю таблицу).
+ODS_TABLES = {
+    "customers": {"table": "ods.ods_customers", "date_column": None},
+    "merchants": {"table": "ods.ods_merchants", "date_column": None},
+    "cards": {"table": "ods.ods_cards", "date_column": None},
+    "fx_rates": {"table": "ods.ods_fx_rates", "date_column": "rate_date"},
+    "transactions": {"table": "ods.ods_transactions", "date_column": "ds"},
+}
+
+# Если отбраковано больше этой доли строк источника, этап падает: что-то не так с файлом,
+# а не «обычная грязь» (у нас она около 1%).
+ODS_MAX_REJECT_SHARE = float(os.environ.get("BANKFLOW_ODS_MAX_REJECT_SHARE", "0.05"))
