@@ -1,5 +1,5 @@
 from contextlib import closing, contextmanager
-from bankflow_lib.config import DDS_FUNCTIONS, ODS_FUNCTIONS, ODS_TABLES, STG_TABLES
+from bankflow_lib.config import DATAMART_FUNCTIONS, DDS_FUNCTIONS, ODS_FUNCTIONS, ODS_TABLES, STG_TABLES
 
 @contextmanager
 def transaction(get_connection):
@@ -71,3 +71,11 @@ def run_quality_checks(get_connection, ds, layers=None):
         cursor.execute('SELECT layer, check_name, severity, status, failed_rows, details FROM dq.run_checks(%s::date, %s)', (ds, layers))
         columns = [column[0] for column in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+def call_datamart_function(get_connection, source, ds):
+    function = DATAMART_FUNCTIONS[source]
+    with transaction(get_connection) as cursor:
+        cursor.execute(f"SELECT * FROM {function}(%s::date)", (ds,))
+        src_rows, inserted, updated = cursor.fetchone()
+    return {"src_rows": src_rows, "inserted": inserted, "updated": updated}

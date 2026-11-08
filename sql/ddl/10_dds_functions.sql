@@ -118,9 +118,7 @@ BEGIN
         INSERT INTO dds.dds_dim_account
                (account_id, customer_id, status, limit_amount, is_deleted, opened_at, valid_from, valid_to, is_current)
         SELECT o.account_id, o.customer_id, o.status, o.limit_amount, o.is_deleted, o.opened_at,
-               CASE WHEN EXISTS (SELECT 1 FROM dds.dds_dim_account x WHERE x.account_id = o.account_id)
-                    THEN o.updated_at ELSE TIMESTAMPTZ '1900-01-01 00:00:00+00' END,
-               TIMESTAMPTZ '9999-12-31 00:00:00+00', true
+               o.updated_at, TIMESTAMPTZ '9999-12-31 00:00:00+00', true
         FROM ods.ods_accounts o
         WHERE NOT EXISTS (SELECT 1 FROM dds.dds_dim_account d WHERE d.account_id = o.account_id AND d.is_current)
         ORDER BY o.account_id

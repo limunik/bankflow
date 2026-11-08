@@ -12,7 +12,7 @@ try:
     from airflow.providers.standard.sensors.python import PythonSensor
 except ImportError:
     from airflow.sensors.python import PythonSensor
-from bankflow_lib import dds_loader, loader, ods_loader, pipeline, quality
+from bankflow_lib import datamart_loader, dds_loader, loader, ods_loader, pipeline, quality
 from bankflow_lib.config import POSTGRES_CONN_ID, SENSOR_POKE_SECONDS, SENSOR_TIMEOUT_SECONDS
 LOG = logging.getLogger(__name__)
 
@@ -114,12 +114,22 @@ def load_dds(batch, source):
     return {'source': source, **counts}
 
 @task()
-def quality_check(batch, loads):
+def quality_check(batch, loads, layers=None):
     context = get_current_context()
-    attempt = getattr(context['ti'], 'try_number', 1)
+    attempt = getattr(context["ti"], "try_number", 1)
     try:
-        result = quality.run(open_connection, batch['load_date'], run_id=context['run_id'], attempt=attempt)
+        result = quality.run(open_connection, batch["load_date"], run_id=context["run_id"],
+                             attempt=attempt, layers=layers)
     except quality.QualityError as error:
         raise AirflowFailException(str(error)) from error
-    LOG.info('Проверки за %s: %s', batch['load_date'], result)
+    LOG.info("Проверки %s за %s: %s", layers or "всех слоёв", batch["load_date"], result)
     return result
+
+
+@task()
+def load_datamart(batch, source):
+    context = get_current_context()
+    attempt = getattr(context["ti"], "try_number", 1)
+    counts = datamart_loader.load_table(open_connection, source, batch["load_date"],
+                                        run_id=context["run_id"], attempt=attempt)
+    return {"source": source, **counts}
