@@ -1,11 +1,5 @@
--- День 10: курсы валют stg -> ods и счётчик отбракованных строк в журнале.
--- Идемпотентно: можно запускать повторно.
-
--- ФТ-6: в журнале видно, сколько строк отбраковано на этапе (для ods и дальше)
 ALTER TABLE stg.etl_load_log ADD COLUMN IF NOT EXISTS rows_rejected integer;
 
--- Курсы за дату p_ds. Возвращает: stg_rows, duplicates, rejected, inserted, updated.
--- Баланс: stg_rows = duplicates + rejected + inserted + updated + unchanged.
 CREATE OR REPLACE FUNCTION ods.load_fx_rates(p_ds date)
 RETURNS TABLE (stg_rows integer, duplicates integer, rejected integer, inserted integer, updated integer)
 LANGUAGE plpgsql AS $$
@@ -19,7 +13,6 @@ BEGIN
     DROP TABLE IF EXISTS tmp_ods_fx;
     CREATE TEMP TABLE tmp_ods_fx ON COMMIT DROP AS
     WITH src AS (
-        -- одна строка на (дата курса, валюта): последняя загруженная
         SELECT DISTINCT ON (nullif(btrim(s.rate_date), ''), upper(nullif(btrim(s.currency), ''))) s.*
         FROM stg.stg_fx_rates s
         WHERE s._ds = p_ds

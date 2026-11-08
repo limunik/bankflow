@@ -1,16 +1,3 @@
--- ODS load functions: stg -> ods for one load date p_ds.
--- Each function does, inside the caller's transaction:
---   1. takes a lock (two runs cannot change the same rows at once);
---   2. clears its previous rejects for the date (so a re-run does not pile up rejects);
---   3. removes duplicates (one row per key), cleans and types the data;
---   4. puts bad rows into ods.ods_reject with a reason;
---   5. upserts good rows by key and changes only rows that really differ.
--- Return: stg_rows, duplicates, rejected, inserted, updated.
--- Invariant: stg_rows = duplicates + rejected + (inserted + updated + unchanged).
--- Call order: customers, merchants -> cards -> transactions (parents first).
--- Idempotent: safe to call repeatedly.
-
--- ---------------------------------------------------------------- customers
 CREATE OR REPLACE FUNCTION ods.load_customers(p_ds date)
 RETURNS TABLE (stg_rows integer, duplicates integer, rejected integer, inserted integer, updated integer)
 LANGUAGE plpgsql AS $$
@@ -58,7 +45,6 @@ BEGIN
     RETURN QUERY SELECT v_stg, v_stg - v_dist, v_rej, v_ins, v_upd;
 END $$;
 
--- ---------------------------------------------------------------- merchants
 CREATE OR REPLACE FUNCTION ods.load_merchants(p_ds date)
 RETURNS TABLE (stg_rows integer, duplicates integer, rejected integer, inserted integer, updated integer)
 LANGUAGE plpgsql AS $$
@@ -109,7 +95,6 @@ BEGIN
     RETURN QUERY SELECT v_stg, v_stg - v_dist, v_rej, v_ins, v_upd;
 END $$;
 
--- -------------------------------------------------------------------- cards
 CREATE OR REPLACE FUNCTION ods.load_cards(p_ds date)
 RETURNS TABLE (stg_rows integer, duplicates integer, rejected integer, inserted integer, updated integer)
 LANGUAGE plpgsql AS $$
@@ -162,7 +147,6 @@ BEGIN
     RETURN QUERY SELECT v_stg, v_stg - v_dist, v_rej, v_ins, v_upd;
 END $$;
 
--- ------------------------------------------------------------- transactions
 CREATE OR REPLACE FUNCTION ods.load_transactions(p_ds date)
 RETURNS TABLE (stg_rows integer, duplicates integer, rejected integer, inserted integer, updated integer)
 LANGUAGE plpgsql AS $$
@@ -176,7 +160,6 @@ BEGIN
     DROP TABLE IF EXISTS tmp_ods_tx;
     CREATE TEMP TABLE tmp_ods_tx ON COMMIT DROP AS
     WITH src AS (
-        -- one row per transaction_id: removes the duplicates that the source file contains
         SELECT DISTINCT ON (nullif(btrim(s.transaction_id), '')) s.*
         FROM stg.stg_transactions s
         WHERE s._ds = p_ds
@@ -188,7 +171,6 @@ BEGIN
                nullif(btrim(customer_id), '')               AS customer_id,
                nullif(btrim(merchant_id), '')               AS merchant_id,
                nullif(btrim(recipient_account_id), '')      AS recipient_account_id,
-               -- формат подходит И такая дата существует (2026-02-31 не пройдёт, а не уронит загрузку)
                CASE WHEN btrim(transaction_ts) ~ '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$'
                          AND pg_input_is_valid(btrim(transaction_ts), 'timestamp')
                     THEN btrim(transaction_ts)::timestamp END AS transaction_ts,
