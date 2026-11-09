@@ -71,7 +71,7 @@ x-airflow-common:
     AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'true'
     AIRFLOW_CONN_BANKFLOW_DWH: postgresql://${DWH_USER}:${DWH_PASSWORD}@dwh:5432/${DWH_DB}
-    DATA_DIR: /data
+    AIRFLOW_CONN_BANKFLOW_CLICKHOUSE: http://${CLICKHOUSE_USER}:${CLICKHOUSE_PASSWORD}@host.docker.internal:8123/${CLICKHOUSE_DB}
     # yamllint disable rule:line-length
     # Use simple http server on scheduler for health checks
     # See https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/check-health.html#scheduler-health-check-server

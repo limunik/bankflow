@@ -12,8 +12,8 @@ try:
     from airflow.providers.standard.sensors.python import PythonSensor
 except ImportError:
     from airflow.sensors.python import PythonSensor
-from bankflow_lib import datamart_loader, dds_loader, loader, ods_loader, pipeline, quality
-from bankflow_lib.config import POSTGRES_CONN_ID, SENSOR_POKE_SECONDS, SENSOR_TIMEOUT_SECONDS
+from bankflow_lib import clickhouse_copy, datamart_loader, dds_loader, loader, ods_loader, pipeline, quality
+from bankflow_lib.config import CLICKHOUSE_CONN_ID, POSTGRES_CONN_ID, SENSOR_POKE_SECONDS, SENSOR_TIMEOUT_SECONDS
 LOG = logging.getLogger(__name__)
 
 def open_connection():
@@ -133,3 +133,26 @@ def load_datamart(batch, source):
     counts = datamart_loader.load_table(open_connection, source, batch["load_date"],
                                         run_id=context["run_id"], attempt=attempt)
     return {"source": source, **counts}
+
+
+def clickhouse_client():
+    try:
+        from airflow.sdk import Connection
+        connection = Connection.get(CLICKHOUSE_CONN_ID)
+    except ImportError:
+        from airflow.hooks.base import BaseHook
+        connection = BaseHook.get_connection(CLICKHOUSE_CONN_ID)
+    scheme = connection.conn_type or "http"
+    url = f"{scheme}://{connection.host}:{connection.port or 8123}"
+    return clickhouse_copy.ClickHouse(url, connection.login, connection.password, connection.schema or "bankflow")
+
+
+@task()
+def copy_to_clickhouse(batch, upstream=None):
+    context = get_current_context()
+    attempt = getattr(context["ti"], "try_number", 1)
+    try:
+        return clickhouse_copy.load_day(open_connection, clickhouse_client(), batch["load_date"],
+                                        run_id=context["run_id"], attempt=attempt)
+    except ValueError as error:
+        raise AirflowFailException(str(error)) from error

@@ -1,0 +1,29 @@
+version: 2
+
+models:
+  - name: stg_scored_transactions
+    description: Операции Core вместе с решением антифрода. Операции без оценки считаются allow.
+    columns:
+      - name: transaction_id
+        tests: [unique, not_null]
+      - name: decision
+        tests:
+          - accepted_values:
+              values: ['allow', 'confirm', 'suspicious']
+  - name: stg_usd_rate
+    description: Курс USD к KGS по дням.
+    columns:
+      - name: ds
+        tests: [unique, not_null]
+  - name: dm_transactions_daily_dbt
+    description: Дневная витрина, построенная dbt. Должна совпадать с витриной Airflow datamart.dm_transactions_daily.
+    columns:
+      - name: ds
+        description: Дата операций.
+        tests: [unique, not_null]
+      - name: operations
+        description: Число операций за день.
+        tests: [not_null]
+      - name: suspicious_share
+        description: Доля подозрительных операций, от 0 до 1.
+        tests: [not_null]

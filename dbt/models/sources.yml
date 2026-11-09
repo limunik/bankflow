@@ -1,0 +1,22 @@
+version: 2
+
+sources:
+  - name: dds
+    schema: dds
+    description: Слой Core. dbt только читает его и ничего в нём не меняет.
+    tables:
+      - name: dds_fact_transaction
+        description: Факт операций, одна строка на операцию.
+        columns:
+          - name: transaction_id
+            tests: [unique, not_null]
+      - name: dds_transaction_score
+        description: Баллы и решение антифрода по операции.
+        columns:
+          - name: transaction_id
+            tests: [unique, not_null]
+  - name: ods
+    schema: ods
+    tables:
+      - name: ods_fx_rates
+        description: Курсы валют к KGS по дням.

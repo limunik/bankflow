@@ -1,0 +1,35 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: bankflow-clickhouse
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-bankflow}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  dbt:
+    build: ./dbt
+    container_name: bankflow-dbt
+    profiles: ["tools"]
+    environment:
+      PGHOST: host.docker.internal
+      PGPORT: 5434
+      PGUSER: ${DWH_USER}
+      PGPASSWORD: ${DWH_PASSWORD}
+      PGDATABASE: ${DWH_DB:-dwh}
+    volumes:
+      - ./dbt:/dbt
+
+volumes:
+  clickhouse_data:

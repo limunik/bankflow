@@ -10,7 +10,7 @@ PROJECT_DIR = str(Path(__file__).resolve().parent)
 if PROJECT_DIR not in sys.path:
     sys.path.insert(0, PROJECT_DIR)
 from bankflow_lib.config import TZ
-from bankflow_lib.tasks import load_datamart, quality_check, resolve_date
+from bankflow_lib.tasks import copy_to_clickhouse, load_datamart, quality_check, resolve_date
 
 with DAG(
     dag_id="bankflow_datamart",
@@ -28,4 +28,5 @@ with DAG(
     daily = load_datamart.override(task_id="dm_transactions_daily")(batch, "daily")
     category = load_datamart.override(task_id="dm_category_monthly")(batch, "category")
     checks = quality_check.override(task_id="quality_datamart")(batch, [daily, category], ["datamart"])
+    clickhouse = copy_to_clickhouse(batch, checks)
     batch >> [daily, category]

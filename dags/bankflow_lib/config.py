@@ -17,3 +17,4 @@ DDS_FUNCTIONS = {'customer': 'dds.load_dim_customer', 'merchant': 'dds.load_dim_
 DATAMART_FUNCTIONS = {'daily': 'datamart.load_dm_transactions_daily', 'category': 'datamart.load_dm_category_monthly'}
 DATAMART_DAG_ID = 'bankflow_datamart'
 DQ_FAIL_SEVERITY = 'error'
+CLICKHOUSE_CONN_ID = os.environ.get('BANKFLOW_CH_CONN_ID', 'bankflow_clickhouse')
