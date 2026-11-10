@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 800" width="1280" height="800" font-family="Segoe UI, Arial, DejaVu Sans, sans-serif">
+<defs><marker id="mr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c0392b"/></marker><marker id="mb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2a5caa"/></marker><marker id="mg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7f8c8d"/></marker><marker id="mo" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e08e0b"/></marker></defs>
+<rect width="1280" height="800" fill="#ffffff"/>
+<text x="28" y="42" font-size="27" font-weight="700" fill="#111" text-anchor="start">BankFlow — путь данных</text>
+<text x="28" y="66" font-size="14" font-weight="400" fill="#666" text-anchor="start">от банковской базы и файлов до витрин: что куда пишется и чем</text>
+<text x="430" y="92" font-size="12" font-weight="600" fill="#c0392b" text-anchor="start">CDC: изменения счетов попадают в ods за секунды · 2 потребителя, 3 партиции · без расписания</text>
+<rect x="20" y="175" width="150" height="90" rx="10" fill="#f1f1f1" stroke="#555" stroke-width="2"/>
+<text x="95.0" y="199" font-size="15" font-weight="700" fill="#111" text-anchor="middle">Postgres oltp</text>
+<text x="95.0" y="219" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">bank.accounts</text>
+<text x="95.0" y="235" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">wal_level=logical</text>
+<text x="95.0" y="251" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">поток изменений</text>
+<rect x="195" y="175" width="105" height="90" rx="10" fill="#f1f1f1" stroke="#555" stroke-width="2"/>
+<text x="247.5" y="199" font-size="15" font-weight="700" fill="#111" text-anchor="middle">Debezium</text>
+<text x="247.5" y="219" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">Kafka Connect</text>
+<text x="247.5" y="235" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">читает WAL,</text>
+<text x="247.5" y="251" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">слот репликации</text>
+<rect x="320" y="175" width="100" height="90" rx="10" fill="#f1f1f1" stroke="#555" stroke-width="2"/>
+<text x="370.0" y="199" font-size="15" font-weight="700" fill="#111" text-anchor="middle">Kafka</text>
+<text x="370.0" y="219" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">3 брокера</text>
+<text x="370.0" y="235" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">3 партиции</text>
+<text x="370.0" y="251" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">ключ account_id</text>
+<path d="M170,220 L195,220" fill="none" stroke="#7f8c8d" stroke-width="3" marker-end="url(#mg)"/>
+<text x="182" y="206" font-size="10" font-weight="700" fill="#555" text-anchor="middle">WAL</text>
+<path d="M300,220 L320,220" fill="none" stroke="#7f8c8d" stroke-width="3" marker-end="url(#mg)"/>
+<rect x="20" y="310" width="150" height="100" rx="10" fill="#f1f1f1" stroke="#555" stroke-width="2"/>
+<text x="95.0" y="334" font-size="15" font-weight="700" fill="#111" text-anchor="middle">Генератор CSV</text>
+<text x="95.0" y="354" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">transactions · fx_rates</text>
+<text x="95.0" y="370" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">merchants · cards</text>
+<text x="95.0" y="386" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">customers</text>
+<text x="95.0" y="402" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">ground_truth (эталон)</text>
+<text x="300" y="352" font-size="11" font-weight="600" fill="#2a5caa" text-anchor="middle">файлы, раз в сутки · Airflow</text>
+<rect x="455" y="130" width="440" height="495" rx="12" fill="#f3f7fd" stroke="#2a5caa" stroke-width="2.5"/>
+<text x="675" y="156" font-size="16" font-weight="700" fill="#2a5caa" text-anchor="middle">Postgres dwh · хранилище</text>
+<path d="M170,360 L436,360 L436,236 L468,236" fill="none" stroke="#2a5caa" stroke-width="3" marker-end="url(#mb)"/>
+<rect x="468" y="178" width="190" height="90" rx="10" fill="#e6eefb" stroke="#2a5caa" stroke-width="2"/>
+<text x="563.0" y="202" font-size="15" font-weight="700" fill="#111" text-anchor="middle">STG</text>
+<text x="563.0" y="222" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">как есть, без правок</text>
+<text x="563.0" y="238" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">stg_* · etl_load_log</text>
+<text x="563.0" y="254" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">stg_accounts_cdc</text>
+<text x="675" y="198" font-size="1" font-weight="400" fill="#222" text-anchor="middle"></text>
+<text x="668" y="202" font-size="11.5" font-weight="400" fill="#333" text-anchor="start">журнал загрузок,</text>
+<text x="668" y="217" font-size="11.5" font-weight="400" fill="#333" text-anchor="start">события CDC по счетам</text>
+<text x="668" y="260" font-size="11" font-weight="700" fill="#2a5caa" text-anchor="start"></text>
+<rect x="468" y="298" width="190" height="90" rx="10" fill="#e6eefb" stroke="#2a5caa" stroke-width="2"/>
+<text x="563.0" y="322" font-size="15" font-weight="700" fill="#111" text-anchor="middle">ODS</text>
+<text x="563.0" y="342" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">типы, ключи, без дублей</text>
+<text x="563.0" y="358" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">ods_reject — брак</text>
+<text x="563.0" y="374" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">ods_accounts — счета</text>
+<text x="675" y="318" font-size="1" font-weight="400" fill="#222" text-anchor="middle"></text>
+<text x="668" y="322" font-size="11.5" font-weight="400" fill="#333" text-anchor="start">брак &gt;5% → загрузка</text>
+<text x="668" y="337" font-size="11.5" font-weight="400" fill="#333" text-anchor="start">отменяется; счета по source_lsn</text>
+<text x="668" y="380" font-size="11" font-weight="700" fill="#2a5caa" text-anchor="start"></text>
+<rect x="468" y="418" width="190" height="110" rx="10" fill="#e6eefb" stroke="#2a5caa" stroke-width="2"/>
+<text x="563.0" y="442" font-size="15" font-weight="700" fill="#111" text-anchor="middle">DDS · Core</text>
+<text x="563.0" y="462" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">SCD2: клиент, счёт</text>
+<text x="563.0" y="478" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">SCD1: мерчант, карта</text>
+<text x="563.0" y="494" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">факт операций, даты</text>
+<text x="563.0" y="510" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">6 правил → баллы</text>
+<text x="675" y="438" font-size="1" font-weight="400" fill="#222" text-anchor="middle"></text>
+<text x="668" y="442" font-size="11.5" font-weight="400" fill="#333" text-anchor="start">allow &lt;30 · confirm 30–49 ·</text>
+<text x="668" y="457" font-size="11.5" font-weight="400" fill="#333" text-anchor="start">suspicious ≥50; ground_truth</text>
+<text x="668" y="472" font-size="11.5" font-weight="400" fill="#333" text-anchor="start">только в схеме eval</text>
+<text x="668" y="520" font-size="11" font-weight="700" fill="#2a5caa" text-anchor="start"></text>
+<rect x="468" y="556" width="190" height="56" rx="10" fill="#e6eefb" stroke="#2a5caa" stroke-width="2"/>
+<text x="563" y="576" font-size="15" font-weight="700" fill="#111" text-anchor="middle">DATAMART</text>
+<text x="563" y="592" font-size="11" font-weight="400" fill="#333" text-anchor="middle">dm_transactions_daily</text>
+<text x="563" y="606" font-size="11" font-weight="400" fill="#333" text-anchor="middle">dm_category_monthly</text>
+<text x="668" y="566" font-size="11" font-weight="700" fill="#2a5caa" text-anchor="start">dq: 35 проверок как данные</text>
+<path d="M377,175 L377,100 L480,100 L480,180" fill="none" stroke="#c0392b" stroke-width="2.5" marker-end="url(#mr)"/>
+<path d="M563,268 L563,298" fill="none" stroke="#2a5caa" stroke-width="3" marker-end="url(#mb)"/>
+<path d="M563,388 L563,418" fill="none" stroke="#2a5caa" stroke-width="3" marker-end="url(#mb)"/>
+<path d="M563,528 L563,556" fill="none" stroke="#2a5caa" stroke-width="3" marker-end="url(#mb)"/>
+<rect x="925" y="130" width="335" height="150" rx="10" fill="#fdf2e0" stroke="#c27c0e" stroke-width="2"/>
+<text x="1092.5" y="154" font-size="15" font-weight="700" fill="#111" text-anchor="middle">dbt · вторая сборка витрины</text>
+<text x="1092.5" y="174" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">читает dds и ods · source() → ref()</text>
+<text x="1092.5" y="190" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">dm_transactions_daily_dbt (схема dbt)</text>
+<text x="1092.5" y="206" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">19 тестов, в том числе: результат dbt</text>
+<text x="1092.5" y="222" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">совпадает с витриной Airflow построчно</text>
+<path d="M895,200 L925,200" fill="none" stroke="#2a5caa" stroke-width="3" marker-end="url(#mb)"/>
+<rect x="925" y="380" width="335" height="245" rx="12" fill="#fdeeee" stroke="#c0392b" stroke-width="2.5"/>
+<text x="1092" y="406" font-size="16" font-weight="700" fill="#c0392b" text-anchor="middle">ClickHouse · показ</text>
+<rect x="945" y="420" width="295" height="92" rx="10" fill="#fbe3e3" stroke="#c0392b" stroke-width="2"/>
+<text x="1092.5" y="444" font-size="15" font-weight="700" fill="#111" text-anchor="middle">dm_transactions_daily</text>
+<text x="1092.5" y="464" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">MergeTree, партиции по месяцам</text>
+<text x="1092.5" y="480" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">повтор за дату не создаёт дублей</text>
+<text x="1092.5" y="496" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">сверка: строки, операции, сумма</text>
+<text x="1092" y="550" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">аналитика по дням без нагрузки на dwh</text>
+<path d="M658,596 L925,596" fill="none" stroke="#2a5caa" stroke-width="3" marker-end="url(#mb)"/>
+<text x="790" y="588" font-size="11" font-weight="600" fill="#2a5caa" text-anchor="middle">копия · Airflow</text>
+<rect x="455" y="650" width="805" height="58" rx="12" fill="#fff7e6" stroke="#e08e0b" stroke-width="2.5"/>
+<text x="857" y="672" font-size="14" font-weight="700" fill="#111" text-anchor="middle">Airflow — оркестратор · CeleryExecutor, 2 воркера · журнал stg.etl_load_log</text>
+<text x="857" y="692" font-size="11.5" font-weight="400" fill="#333" text-anchor="middle">bankflow_pipeline: stg → ods → dds → флаги → проверки → bankflow_datamart: витрины → проверки → dbt/ClickHouse</text>
+<path d="M560,650 L560,626" fill="none" stroke="#e08e0b" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#mo)"/>
+<path d="M1092,650 L1092,626" fill="none" stroke="#e08e0b" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#mo)"/>
+<text x="578" y="642" font-size="10" font-weight="600" fill="#e08e0b" text-anchor="start">проверяет, запускает</text>
+<text x="1110" y="642" font-size="10" font-weight="600" fill="#e08e0b" text-anchor="start">копирует витрину</text>
+<rect x="20" y="728" width="400" height="34" rx="6" fill="#7f8c8d" stroke="#7f8c8d" stroke-width="1"/>
+<text x="220.0" y="750" font-size="13" font-weight="700" fill="#fff" text-anchor="middle">SOURCE · CDC · TRANSPORT</text>
+<rect x="455" y="728" width="440" height="34" rx="6" fill="#2a5caa" stroke="#2a5caa" stroke-width="1"/>
+<text x="675.0" y="750" font-size="13" font-weight="700" fill="#fff" text-anchor="middle">DWH · Postgres</text>
+<rect x="925" y="728" width="160" height="34" rx="6" fill="#c27c0e" stroke="#c27c0e" stroke-width="1"/>
+<text x="1005.0" y="750" font-size="13" font-weight="700" fill="#fff" text-anchor="middle">DBT</text>
+<rect x="1100" y="728" width="160" height="34" rx="6" fill="#c0392b" stroke="#c0392b" stroke-width="1"/>
+<text x="1180.0" y="750" font-size="13" font-weight="700" fill="#fff" text-anchor="middle">CLICKHOUSE</text>
+<line x1="20" y1="782" x2="60" y2="782" stroke="#2a5caa" stroke-width="3"/>
+<text x="68" y="786" font-size="11" font-weight="400" fill="#444" text-anchor="start">через хранилище (по расписанию)</text>
+<line x1="300" y1="782" x2="340" y2="782" stroke="#c0392b" stroke-width="3"/>
+<text x="348" y="786" font-size="11" font-weight="400" fill="#444" text-anchor="start">CDC (секунды)</text>
+<line x1="470" y1="782" x2="510" y2="782" stroke="#e08e0b" stroke-width="3" stroke-dasharray="5,4"/>
+<text x="518" y="786" font-size="11" font-weight="400" fill="#444" text-anchor="start">управление Airflow</text>
+</svg>

@@ -1,0 +1,98 @@
+erDiagram
+    dds_dim_date ||--o{ dds_fact_transaction : date_key
+    dds_dim_customer ||--o{ dds_fact_transaction : customer_sk
+    dds_dim_card ||--o{ dds_fact_transaction : card_sk
+    dds_dim_merchant |o--o{ dds_fact_transaction : merchant_sk
+    dds_fact_transaction ||--o| dds_transaction_score : transaction_id
+    dds_fact_transaction ||--o{ dds_transaction_flag : transaction_id
+    dds_rule ||--o{ dds_transaction_flag : rule_code
+    dds_decision_level ||--o{ dds_transaction_score : decision
+    dds_dim_account }o--o{ dds_fact_transaction : "account_id (без FK)"
+
+    dds_dim_date {
+        int date_key PK
+        date full_date
+        smallint year
+        smallint quarter
+        smallint month
+        smallint day
+        smallint day_of_week
+        bool is_weekend
+        bool is_payday
+    }
+    dds_dim_customer {
+        bigint customer_sk PK
+        text customer_id
+        text customer_name
+        text customer_type
+        date valid_from
+        date valid_to
+        bool is_current
+    }
+    dds_dim_account {
+        bigint account_sk PK
+        text account_id
+        text customer_id
+        text status
+        numeric limit_amount
+        bool is_deleted
+        date opened_at
+        timestamptz valid_from
+        timestamptz valid_to
+        bool is_current
+    }
+    dds_dim_card {
+        bigint card_sk PK
+        text card_id UK
+        text account_id
+        text customer_id
+        text card_scheme
+    }
+    dds_dim_merchant {
+        bigint merchant_sk PK
+        text merchant_id UK
+        text merchant_name
+        text category
+        text country
+    }
+    dds_fact_transaction {
+        text transaction_id PK
+        date ds
+        int date_key FK
+        bigint customer_sk FK
+        bigint card_sk FK
+        bigint merchant_sk FK
+        text account_id
+        text recipient_account_id
+        timestamp transaction_ts
+        numeric amount
+        text currency
+        numeric fx_rate
+        numeric amount_kgs
+        text channel
+        text payment_method
+        text transaction_type
+    }
+    dds_rule {
+        text rule_code PK
+        text description
+        int points
+        bool enabled
+    }
+    dds_decision_level {
+        text decision PK
+        int min_points
+    }
+    dds_transaction_flag {
+        text transaction_id PK
+        text rule_code PK
+        int points
+        date ds
+    }
+    dds_transaction_score {
+        text transaction_id PK
+        date ds
+        int total_points
+        text decision FK
+        text rules
+    }
